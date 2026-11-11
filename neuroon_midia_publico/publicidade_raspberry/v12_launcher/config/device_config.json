@@ -1,0 +1,16 @@
+{
+  "id_local": 2,
+  "api_base_url": "https://example.com/nextpubli/api/raspberry",
+  "release_endpoint": "get_launcher_release.php",
+  "python_bin": "/usr/bin/python3",
+  "request_timeout_seconds": 20,
+  "app_stop_timeout_seconds": 10,
+  "paths": {
+    "runtime_dir": "runtime",
+    "releases_dir": "runtime/releases",
+    "scripts_dir": "runtime/scripts",
+    "tmp_dir": "runtime/tmp",
+    "state_dir": "state",
+    "logs_dir": "logs"
+  }
+}

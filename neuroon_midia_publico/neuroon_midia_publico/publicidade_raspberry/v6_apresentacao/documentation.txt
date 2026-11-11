@@ -1,0 +1,134 @@
+# Documentação do Código - Publicidade Player (main.py)
+
+Este documento explica o funcionamento do script `main.py`, responsável por exibir um player de publicidade em tela cheia no Raspberry Pi OS, buscando mídias de uma API externa.
+
+## 1. Visão Geral
+
+O script utiliza a biblioteca PyQt5 para criar a interface gráfica e gerenciar a reprodução de mídias (vídeos e imagens). Ele é dividido principalmente em duas classes:
+
+*   `ApiCheckThread`: Uma thread separada que consulta periodicamente uma API web para obter a lista de mídias a serem exibidas.
+*   `PublicidadePlayer`: A janela principal da aplicação, que gerencia a interface, o download das mídias, a reprodução em loop e a atualização da playlist com base nos dados da API.
+
+## 2. Estrutura do Código
+
+### 2.1. Importações e Constantes
+
+*   **Importações:** O script importa módulos necessários do `sys`, `os`, `requests`, `time` e, principalmente, da biblioteca `PyQt5` (QtWidgets, QtMultimedia, QtMultimediaWidgets, QtCore, QtGui).
+*   **Constantes:**
+    *   `API_URL`: Define a URL da API de onde a lista de mídias é buscada.
+    *   `SCRIPT_DIR`: Detecta automaticamente o diretório onde o script `main.py` está localizado.
+    *   `MEDIA_DIR`: Define o caminho da pasta `midias` (dentro do `SCRIPT_DIR`) onde os arquivos de vídeo e imagem serão baixados e armazenados.
+    *   `API_CHECK_INTERVAL_MS`: Intervalo (em milissegundos) em que a API é verificada por atualizações (10 segundos).
+    *   `IMAGE_DISPLAY_TIME_MS`: Tempo (em milissegundos) que cada imagem fica na tela (10 segundos).
+
+### 2.2. Classe `ApiCheckThread(QThread)`
+
+Esta classe herda de `QThread` para rodar em paralelo com a interface gráfica, evitando que a consulta à API trave a aplicação.
+
+*   **Sinais:**
+    *   `playlist_updated`: Emitido quando uma nova lista de mídias (diferente da atual) é recebida da API. Envia a nova lista como argumento.
+    *   `error_signal`: Emitido quando ocorre um erro ao tentar buscar ou processar os dados da API. Envia uma mensagem de erro como argumento.
+*   **`__init__`:** Inicializa a thread, a lista de mídias atual (`current_media_list`) e a flag de controle `running`.
+*   **`run`:** É o coração da thread. Entra em um loop `while self.running`:
+    1.  **Busca na API:** Usa `requests.get` para buscar dados da `API_URL`.
+    2.  **Validação:** Verifica se a resposta da API foi bem-sucedida (código 2xx) e se o conteúdo é uma lista JSON.
+    3.  **Processamento Flexível:** Verifica o formato da lista recebida:
+        *   Se for uma lista de strings (URLs), converte cada URL válida em um dicionário (`{'nome': ..., 'url': ...}`) para manter a consistência interna.
+        *   Se for uma lista de dicionários (formato original esperado), valida se cada dicionário tem a chave 'url' e garante que a chave 'nome' exista.
+        *   Se a lista estiver vazia ou em formato inesperado, trata como uma lista vazia.
+    4.  **Comparação:** Usa `_list_content_changed` para comparar a lista recém-processada com a `current_media_list`.
+    5.  **Emissão de Sinal:** Se a lista mudou, atualiza `current_media_list` e emite o sinal `playlist_updated` com a nova lista.
+    6.  **Tratamento de Erros:** Captura exceções de rede (`requests.exceptions.RequestException`), erros de formato JSON/lista (`ValueError`) e outros erros (`Exception`), emitindo `error_signal`.
+    7.  **Espera:** Usa `self.msleep(API_CHECK_INTERVAL_MS)` para pausar a thread até a próxima verificação.
+*   **`_list_content_changed`:** Método auxiliar que compara duas listas de mídia verificando o tamanho e as URLs ordenadas.
+*   **`stop`:** Define `self.running` como `False` e aguarda a thread terminar sua execução atual antes de sair.
+
+### 2.3. Classe `PublicidadePlayer(QMainWindow)`
+
+Representa a janela principal da aplicação.
+
+*   **`__init__`:**
+    *   Inicializa variáveis importantes: `playlist` (lista de mídias atual), `current_index` (índice da mídia tocando), `media_files` (mapeamento URL -> caminho local), `error_count`.
+    *   Verifica se a pasta `MEDIA_DIR` existe e a cria se necessário.
+    *   Chama os métodos de inicialização: `init_ui`, `init_playback`, `init_api_check`.
+*   **`init_ui`:** Configura a aparência e o layout da janela:
+    *   Define título e estilo base (fundo preto).
+    *   Configura para tela cheia (maximizando primeiro e depois aplicando `showFullScreen` com um timer para melhor compatibilidade).
+    *   Cria o layout principal horizontal (`main_layout`).
+    *   **Lado Esquerdo:** Cria um widget (`left_widget`) com layout vertical (`left_layout`) para conter a área de mídia e o rodapé.
+        *   **Área de Mídia:** Cria um container (`media_container`) com `QVideoWidget` (para vídeos) e `QLabel` (para imagens). Ambos começam escondidos.
+        *   **Rodapé (Footer):** Cria o `footer_widget` com altura fixa e layout vertical (`footer_main_layout`).
+            *   **Metade Superior:** Cria `top_footer_widget` com fundo `#111` (igual ao painel direito), bordas arredondadas e um `QLabel` (`condo_info_label`) centralizado para informativos.
+            *   **Metade Inferior:** Cria `bottom_footer_widget` com fundo transparente e layout horizontal (`bottom_footer_layout`). Adiciona `QLabel`s para Clima, Dólar, BTC e Data/Hora (`clima_label`, `dollar_label`, `btc_label`, `datetime_label`) com estilo comum e usa `addStretch` para distribuí-los.
+            *   Adiciona as metades superior e inferior ao `footer_main_layout`.
+        *   Adiciona a área de mídia (ocupando mais espaço, fator 9) e o rodapé (fator 1) ao `left_layout`.
+    *   **Lado Direito:** Cria `right_widget` com fundo `#111`, borda esquerda e um `QLabel` (`info_label`) para informações fixas do condomínio.
+    *   Adiciona `left_widget` (fator 8) e `right_widget` (fator 2) ao `main_layout`, definindo a proporção 80%/20%.
+*   **`init_playback`:**
+    *   Cria a instância do `QMediaPlayer`.
+    *   Associa o `QVideoWidget` como saída de vídeo.
+    *   Define o player como mudo (`setMuted(True)`).
+    *   Conecta os sinais `mediaStatusChanged` e `error` do player aos métodos `media_status_changed` e `handle_player_error` da classe.
+    *   Cria o `QTimer` (`playback_timer`) que será usado para controlar o tempo de exibição das imagens.
+*   **`init_api_check`:**
+    *   Cria uma instância da `ApiCheckThread`.
+    *   Conecta os sinais `playlist_updated` e `error_signal` da thread aos métodos `update_playlist` e `handle_api_error` da janela principal.
+    *   Inicia a thread com `self.api_thread.start()`.
+*   **`handle_api_error`:** Método chamado quando a thread reporta um erro. Atualmente, apenas imprime o erro no console.
+*   **`update_playlist`:** Método chamado quando a thread envia uma nova playlist:
+    *   Atualiza `self.playlist`.
+    *   Chama `self.download_media()` para baixar/verificar os arquivos.
+    *   Se nada estiver tocando, reinicia a reprodução do início da nova playlist.
+    *   Se algo já estava tocando, a reprodução continua e a nova lista será usada no próximo ciclo.
+*   **`download_media`:**
+    *   Itera sobre a `self.playlist` atual.
+    *   Para cada item, determina o caminho local (`local_path`) na pasta `MEDIA_DIR`.
+    *   Mantém um conjunto (`required_files`) com todos os caminhos locais necessários para a playlist atual.
+    *   Se um arquivo não existe localmente, tenta baixá-lo usando `requests` (com stream) e o salva.
+    *   Após verificar/baixar todos os itens, itera sobre os arquivos existentes em `MEDIA_DIR` e remove aqueles que não pertencem mais à playlist atual (limpeza).
+    *   Atualiza `self.media_files` com o mapeamento URL -> caminho local dos arquivos válidos.
+*   **`play_next`:** É o coração do loop de reprodução:
+    1.  Chama `self.stop_playback()` para parar qualquer mídia anterior.
+    2.  Verifica se a playlist está vazia; se sim, agenda uma nova tentativa em 5 segundos.
+    3.  Calcula o próximo índice (`self.current_index`) de forma circular.
+    4.  Obtém o item da playlist e sua URL.
+    5.  Verifica se o arquivo local correspondente existe em `self.media_files`; se não (download falhou), pula para o próximo.
+    6.  Obtém o `local_path`.
+    7.  Verifica a extensão do arquivo:
+        *   **Vídeo (.mp4, etc.):** Esconde `image_label`, mostra `video_widget`, define a mídia no `QMediaPlayer` e chama `player.play()`.
+        *   **Imagem (.jpg, .png, etc.):** Esconde `video_widget`, mostra `image_label`, carrega a imagem com `QPixmap`, redimensiona para caber no label (`scaled`), define no `image_label` e inicia o `playback_timer` com `IMAGE_DISPLAY_TIME_MS`.
+        *   **Outro:** Pula rapidamente para o próximo.
+*   **`media_status_changed`:** Chamado quando o status do vídeo muda. Se for `EndOfMedia`, chama `play_next()`.
+*   **`handle_player_error`:** Chamado em caso de erro do `QMediaPlayer`. Imprime o erro e chama `play_next()` após 1 segundo para tentar recuperar.
+*   **`stop_playback`:** Para o `QMediaPlayer`, para o `playback_timer` (se ativo), esconde os widgets de mídia e limpa o `image_label`.
+*   **`keyPressEvent`:** Captura eventos de teclado. Se a tecla 'q' for pressionada, chama `self.close()` para fechar a aplicação.
+*   **`resizeEvent`:** Chamado quando a janela é redimensionada. Redimensiona a imagem atual (se houver e se `image_label` existir) para caber no novo tamanho.
+*   **`closeEvent`:** Chamado quando a janela está prestes a fechar. Para a `api_thread` e a reprodução (`stop_playback`) antes de aceitar o fechamento.
+
+### 2.4. Bloco `if __name__ == "__main__":`
+
+Este bloco é executado apenas quando o script é rodado diretamente.
+
+1.  **Verificação de Ambiente Gráfico:** Checa se as variáveis de ambiente `DISPLAY` ou `WAYLAND_DISPLAY` existem. Se não, exibe um erro e sai, pois PyQt precisa de um ambiente gráfico.
+2.  **Criação da Aplicação:** Cria a instância `QApplication`.
+3.  **Verificação do Backend Multimídia:** Tenta criar um `QMediaPlayer` temporário para verificar se o backend (GStreamer no Linux) está funcional. Se falhar ou não suportar nenhum tipo de mídia, exibe uma mensagem de erro com sugestões de instalação de plugins e sai.
+4.  **Criação e Exibição da Janela:** Cria a instância da `PublicidadePlayer` e a torna visível.
+5.  **Loop de Eventos:** Inicia o loop principal de eventos da aplicação Qt com `app.exec_()`. A aplicação permanecerá rodando, respondendo a eventos (timers, cliques, sinais, etc.) até que `app.quit()` seja chamado (o que acontece implicitamente quando a janela principal é fechada).
+
+## 3. Fluxo de Execução
+
+1.  O script é iniciado.
+2.  A janela `PublicidadePlayer` é criada.
+3.  A interface (`init_ui`) e o player (`init_playback`) são configurados.
+4.  A thread `ApiCheckThread` (`init_api_check`) é iniciada e começa a buscar a API em segundo plano a cada 10 segundos.
+5.  Quando a thread obtém a primeira lista de mídias válida, ela emite `playlist_updated`.
+6.  A janela recebe o sinal em `update_playlist`, atualiza sua `playlist` e chama `download_media`.
+7.  `download_media` baixa os arquivos necessários para a pasta `midias` e limpa os antigos.
+8.  Se nada estava tocando, `update_playlist` chama `play_next`.
+9.  `play_next` pega o primeiro item, verifica o tipo:
+    *   Se vídeo, toca com `QMediaPlayer`. Quando o vídeo termina, `media_status_changed` chama `play_next` novamente.
+    *   Se imagem, exibe no `QLabel` e inicia um `QTimer`. Quando o timer dispara, `play_next` é chamado.
+10. O ciclo de `play_next` continua, exibindo cada item da playlist em loop.
+11. A cada 10 segundos, a `ApiCheckThread` verifica a API. Se a lista mudar, ela emite `playlist_updated` novamente, o `update_playlist` é chamado, `download_media` atualiza os arquivos locais, e o loop de reprodução continua, incorporando as novas mídias no próximo ciclo.
+12. Pressionar 'q' chama `keyPressEvent`, que fecha a aplicação, parando a thread e a reprodução.
+

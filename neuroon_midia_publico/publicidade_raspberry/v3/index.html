@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulação de Vídeo em Tela Vertical</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    /* Simula a tela do monitor em pé (1080x1920) */
+    .monitor {
+      width: 270px;
+      height: 480px;
+      background-color: #333;
+      border: 4px solid #555;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Simula o vídeo 1920x1080, centralizado na largura e alinhado ao topo */
+    .video-simulacao {
+      width: 100%;
+      aspect-ratio: 16 / 9; /* mantém a proporção 1920x1080 */
+      background-color: #0077ff;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: sans-serif;
+      font-size: 1rem;
+    }
+
+    /* Área vazia abaixo do vídeo */
+    .espaco-vazio {
+      flex-grow: 1;
+      background-color: #222;
+    }
+
+    .conteudo {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="monitor">
+    <div class="conteudo">
+      <div class="video-simulacao">
+        Vídeo 1920×1080
+      </div>
+      <div class="espaco-vazio"></div>
+    </div>
+  </div>
+</body>
+</html>
